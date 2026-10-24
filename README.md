@@ -1,23 +1,56 @@
-# RDS Supabase 实时聊天示例应用
+# RDS Supabase Realtime Chat
 
-基于华为云 RDS Supabase 的 Realtime 与 RLS（行级安全策略）构建的实时聊天应用：支持单聊/群聊、图片消息、正在输入提示、在线状态展示，数据隔离由数据库层强制保障，无需自建 WebSocket 服务、无需手写后端代码。
+![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
+![Node](https://img.shields.io/badge/node-%E2%89%A518-green.svg)
+![React](https://img.shields.io/badge/React-18-61dafb.svg)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6.svg)
 
-## 功能特性
+基于华为云 RDS Supabase 的实时聊天示例应用。消息推送、权限控制、用户认证、文件存储全部由数据库平台承担，前端只有 React 组件，**没有任何后端代码**。
 
-- **邮箱注册/登录**：会话持久化、JWT 自动续期
-- **单聊/群聊**：会话列表实时刷新，被拉入群聊即刻可见
-- **消息实时推送**：基于 PostgreSQL WAL 变更捕获（CDC），毫秒级送达
-- **正在输入提示**：Broadcast 瞬态信号，不落库
-- **在线成员展示**：Presence 状态跟踪
-- **图片消息**：Storage 对接华为云 OBS 对象存储
-- **数据库级安全隔离**：RLS 策略统一管控"谁能读哪个房间的消息、谁能以什么身份发言"，前端零权限代码
+![Architecture](docs/architecture.png)
+
+对比传统方案，自建的 WebSocket 网关、鉴权中间件、消息队列、Redis 在线状态服务，在这里分别对应 Realtime、RLS 策略、WAL 推送和 Presence（传统架构见 [docs/architecture-traditional.png](docs/architecture-traditional.png)）。
+
+## 功能
+
+| 能力 | 实现方式 |
+| --- | --- |
+| 单聊 / 群聊 | rooms + room_members 数据模型，幂等创建 |
+| 消息实时推送 | Realtime postgres_changes（WAL 变更捕获），毫秒级送达 |
+| 正在输入提示 | Broadcast 瞬态信号，不落库 |
+| 在线成员展示 | Presence 状态跟踪 |
+| 图片消息 | Storage（对接华为云 OBS） |
+| 用户认证 | Auth 邮箱登录，JWT 自动管理 |
+| 数据安全隔离 | RLS 行级安全策略，数据库层强制 |
+
+## 安全模型
+
+权限规则写在数据库里（RLS 策略），所有数据出口一起生效，包括页面查询、REST API 和 Realtime 推送。消息读取限制为房间成员，发送时校验 `sender_id = auth.uid()` 防止冒充。已实测验证：第三方账号携带合法 JWT 直连 API 查询他人房间，返回空数组。
+
+`sql/init.sql` 中的 `is_room_member` 函数用于规避 RLS 策略自引用递归，`rooms_creator_select` 策略用于解决 PostgREST `INSERT ... RETURNING` 返回行问题，相关说明见最佳实践文档。
+
+## 快速开始
+
+完整搭建步骤参见华为云最佳实践[《基于华为云RDS Supabase构建实时聊天应用》](https://support.huaweicloud.com/bestpractice-rds-pg/rds_pg_ai_0000.html)。
+
+本地三步即可运行：
+
+```bash
+# 1. 在 RDS Supabase Studio 的 SQL Editor 中执行 sql/init.sql
+# 2. 复制并填写环境变量
+cp .env.example .env    # 填入 Project URL 和 Anon Key
+# 3. 安装依赖并启动
+npm install && npm run dev
+```
 
 ## 前提条件
 
-- 已创建 RDS for PostgreSQL 实例，并开通 Supabase 应用（公测期间免费）。操作指引参见 [RDS Supabase 应用介绍](https://support.huaweicloud.com/usermanual-rds-pg/rds_supabase_01.html)。
+- 已创建 RDS Supabase 应用（公测期间免费）。操作指引参见 [RDS Supabase 应用介绍](https://support.huaweicloud.com/usermanual-rds-pg/rds_supabase_01.html)。
 - 本地已安装 Node.js 18 及以上版本。
 
-## 快速开始
+## 搭建步骤
+
+以下为详细步骤，与最佳实践文档一致。
 
 ### 1. 初始化数据库
 
@@ -98,3 +131,7 @@ npm run dev
         ├── ChatWindow.tsx    # 聊天窗口（消息/正在输入/在线状态/图片）
         └── CreateRoomModal.tsx # 新建单聊/群聊
 ```
+
+## License
+
+[Apache-2.0](LICENSE)
