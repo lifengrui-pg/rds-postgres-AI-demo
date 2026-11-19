@@ -85,6 +85,7 @@ LANGUAGE sql SECURITY DEFINER STABLE AS $$
 $$;
 
 -- profiles：已认证用户可互相查看（用于找人建会话）
+DROP POLICY IF EXISTS profiles_select ON public.profiles;
 CREATE POLICY profiles_select ON public.profiles
     FOR SELECT TO authenticated
     USING (true);
@@ -171,9 +172,26 @@ GRANT SELECT, INSERT ON public.messages TO authenticated;
 ALTER TABLE public.messages     REPLICA IDENTITY FULL;
 ALTER TABLE public.room_members REPLICA IDENTITY FULL;
 
--- 加入 publication 后 Realtime 服务才会捕获该表的变更
-ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.room_members;
+-- 加入 publication 后 Realtime 服务才会捕获该表的变更。
+-- PostgreSQL 不支持 IF NOT EXISTS，用条件判断保证幂等
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime'
+          AND schemaname = 'public' AND tablename = 'messages'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime'
+          AND schemaname = 'public' AND tablename = 'room_members'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.room_members;
+    END IF;
+END
+$$;
 
 -- ------------------------------------------------------------
 -- 5. 配置 Storage（聊天图片，对接华为云 OBS）
@@ -185,11 +203,13 @@ VALUES ('chat-attachments', 'chat-attachments', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- 已认证用户可上传附件
+DROP POLICY IF EXISTS attachments_upload ON storage.objects;
 CREATE POLICY attachments_upload ON storage.objects
     FOR INSERT TO authenticated
     WITH CHECK (bucket_id = 'chat-attachments');
 
 -- 已认证用户可读取附件元数据
+DROP POLICY IF EXISTS attachments_read ON storage.objects;
 CREATE POLICY attachments_read ON storage.objects
     FOR SELECT TO authenticated
     USING (bucket_id = 'chat-attachments');
